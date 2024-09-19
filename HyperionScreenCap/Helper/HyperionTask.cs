@@ -2,6 +2,7 @@
 using HyperionScreenCap.Config;
 using HyperionScreenCap.Model;
 using HyperionScreenCap.Networking;
+using Microsoft.Win32;
 using log4net;
 using System;
 using System.Collections.Generic;
@@ -30,7 +31,7 @@ namespace HyperionScreenCap.Helper
 
         private void InitScreenCapture()
         {
-            if ( _screenCapture != null && !_screenCapture.IsDisposed() )
+            if (_screenCapture != null && !_screenCapture.IsDisposed())
             {
                 // Screen capture already initialized. Ignoring request.
                 return;
@@ -41,7 +42,7 @@ namespace HyperionScreenCap.Helper
                 _screenCapture.Initialize();
                 LOG.Info($"{this}: Screen capture initialized");
             }
-            catch ( Exception ex )
+            catch (Exception ex)
             {
                 _screenCapture?.Dispose();
                 throw new Exception("Failed to initialize screen capture: " + ex.Message, ex);
@@ -55,7 +56,7 @@ namespace HyperionScreenCap.Helper
 
         private void InstantiateHyperionClients()
         {
-            foreach ( HyperionServer server in _configuration.HyperionServers )
+            foreach (HyperionServer server in _configuration.HyperionServers)
             {
                 switch (server.Protocol)
                 {
@@ -70,13 +71,13 @@ namespace HyperionScreenCap.Helper
                     default:
                         throw new NotImplementedException($"Hyperion server protocol {server.Protocol} is not supported yet");
                 }
-                
+
             }
         }
 
         private void InstantiateScreenCapture()
         {
-            switch ( _configuration.CaptureMethod )
+            switch (_configuration.CaptureMethod)
             {
                 case CaptureMethod.DX9:
                     _screenCapture = new DX9ScreenCapture(_configuration.Dx9MonitorIndex, _configuration.Dx9CaptureWidth, _configuration.Dx9CaptureHeight,
@@ -95,7 +96,7 @@ namespace HyperionScreenCap.Helper
 
         private void DisposeHyperionClients()
         {
-            foreach ( HyperionClient hyperionClient in _hyperionClients )
+            foreach (HyperionClient hyperionClient in _hyperionClients)
             {
                 hyperionClient?.Dispose();
             }
@@ -103,9 +104,9 @@ namespace HyperionScreenCap.Helper
 
         private void ConnectHyperionClients()
         {
-            foreach ( HyperionClient hyperionClient in _hyperionClients )
+            foreach (HyperionClient hyperionClient in _hyperionClients)
             {
-                if ( hyperionClient.IsConnected() )
+                if (hyperionClient.IsConnected())
                 {
                     // Hyperion client already initialized. Ignoring request.
                     return;
@@ -117,7 +118,7 @@ namespace HyperionScreenCap.Helper
                     // TODO: check for memory leak in each of the Hyperion Clients
                     hyperionClient.Connect();
                     // Double checking since sometimes exceptions are not thrown even if connection fails
-                    if ( hyperionClient.IsConnected() )
+                    if (hyperionClient.IsConnected())
                     {
                         LOG.Info($"{this}: {hyperionClient} connected");
                         _notificationUtils.Info($"Connected to Hyperion server using {hyperionClient}!");
@@ -125,7 +126,7 @@ namespace HyperionScreenCap.Helper
                     else
                         throw new Exception(GetHyperionInitFailedMsg(hyperionClient));
                 }
-                catch ( Exception ex )
+                catch (Exception ex)
                 {
                     throw new Exception(GetHyperionInitFailedMsg(hyperionClient), ex);
                 }
@@ -134,7 +135,7 @@ namespace HyperionScreenCap.Helper
 
         private void TransmitNextFrame()
         {
-            foreach ( HyperionClient hyperionClient in _hyperionClients )
+            foreach (HyperionClient hyperionClient in _hyperionClients)
             {
                 try
                 {
@@ -144,7 +145,7 @@ namespace HyperionScreenCap.Helper
                     // Uncomment the following to enable debugging
                     // MiscUtils.SaveRGBArrayToImageFile(imageData, _screenCapture.CaptureWidth, _screenCapture.CaptureHeight, AppConstants.DEBUG_IMAGE_FILE_NAME);
                 }
-                catch ( Exception ex )
+                catch (Exception ex)
                 {
                     throw new Exception("Error occured while sending image to server: " + ex.Message, ex);
                 }
@@ -156,7 +157,7 @@ namespace HyperionScreenCap.Helper
             InstantiateScreenCapture();
             InstantiateHyperionClients();
             int captureAttempt = 1;
-            while ( CaptureEnabled )
+            while (CaptureEnabled)
             {
                 try // This block will help retry capture before giving up
                 {
@@ -164,18 +165,19 @@ namespace HyperionScreenCap.Helper
                     ConnectHyperionClients();
                     TransmitNextFrame();
                     _screenCapture.DelayNextCapture();
+                    SetupSystemEvents();
                     captureAttempt = 1; // Reset attempt count
                 }
-                catch ( Exception ex )
+                catch (Exception ex)
                 {
                     LOG.Error($"{this}: Exception in screen capture attempt: {captureAttempt}", ex);
-                    if ( captureAttempt > AppConstants.REINIT_CAPTURE_AFTER_ATTEMPTS )
+                    if (captureAttempt > AppConstants.REINIT_CAPTURE_AFTER_ATTEMPTS)
                     {
                         // After a few attempt, try disposing screen capture object as well
                         _screenCapture?.Dispose();
                         LOG.Info($"{this}: Will re-initialize screen capture on retry");
                     }
-                    if ( ++captureAttempt == AppConstants.MAX_CAPTURE_ATTEMPTS )
+                    if (++captureAttempt == AppConstants.MAX_CAPTURE_ATTEMPTS)
                     {
                         LOG.Error($"{this}: Max screen capture attempts reached. Giving up.");
                         _notificationUtils.Error(ex.Message);
@@ -221,6 +223,18 @@ namespace HyperionScreenCap.Helper
         public override String ToString()
         {
             return $"HyperionTask[ConfigurationId: {_configuration.Id}]";
+        }
+
+        private void SetupSystemEvents()
+        {
+            SystemEvents.DisplaySettingsChanging += (sender, EventArgs) => RestartCapture();
+        }
+
+        private void RestartCapture()
+        {
+            _screenCapture.Dispose();
+
+            StartCapture();
         }
     }
 }
